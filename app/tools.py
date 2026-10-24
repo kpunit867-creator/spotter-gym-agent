@@ -243,11 +243,22 @@ def _norm(s: str) -> str:
     return " ".join(str(s).lower().replace("-", " ").replace("_", " ").split())
 
 
+_BUILTIN_CACHE = {"at": 0.0, "rows": []}
+BUILTIN_CACHE_SECONDS = 300
+
+
 def load_exercises(conn, user_id):
-    return fetch_all(conn,
+    """Built-in dictionary (cached 5 min) + this user's own exercises."""
+    import time
+    if time.monotonic() - _BUILTIN_CACHE["at"] > BUILTIN_CACHE_SECONDS:
+        _BUILTIN_CACHE["rows"] = fetch_all(conn,
+            """select exercise_id, exercise_name, aliases, muscle_group, exercise_type
+               from exercises where user_id is null order by exercise_name""")
+        _BUILTIN_CACHE["at"] = time.monotonic()
+    own = fetch_all(conn,
         """select exercise_id, exercise_name, aliases, muscle_group, exercise_type
-           from exercises where user_id is null or user_id = %s order by exercise_name""",
-        (user_id,))
+           from exercises where user_id = %s order by exercise_name""", (user_id,))
+    return [dict(r) for r in _BUILTIN_CACHE["rows"]] + own
 
 
 AUTO_MATCH_RATIO = 0.88  # "pec dek" → "pec deck" is accepted; anything less certain is asked
@@ -277,13 +288,15 @@ def learn_alias(conn, exercise, wording):
         return False
     conn.execute("update exercises set aliases = array_append(aliases, %s) where exercise_id = %s",
                  (w, exercise["exercise_id"]))
+    _BUILTIN_CACHE["at"] = 0.0  # reload the dictionary next time
     exercise["aliases"] = [*exercise["aliases"], w]
     return True
 
 
 GENERIC_WORDS = {"press", "curl", "curls", "row", "rows", "raise", "raises", "fly", "flys", "flyes", "extension",
                  "extensions", "squat", "squats", "pull", "pulls", "push", "pushdown", "machine", "cable", "dumbbell",
-                 "db", "barbell", "bb", "kettlebell", "kb", "seated", "standing", "lying", "incline", "decline"}
+                 "db", "barbell", "bb", "kettlebell", "kb", "seated", "standing", "lying", "incline", "decline",
+                 "crunch", "crunches", "lunge", "lunges", "dip", "dips", "walk", "run", "free", "weight", "weighted"}
 
 
 def _distinctive(text: str) -> str:
@@ -292,16 +305,38 @@ def _distinctive(text: str) -> str:
     return " ".join(words) or _norm(text)
 
 
-def suggest_exercises(exercises, name, limit=3):
-    target = _distinctive(name)
-    scored = []
-    for e in exercises:
-        best = max(difflib.SequenceMatcher(None, target, _distinctive(k)).ratio()
-                   for k in [e["exercise_name"], *e["aliases"]])
-        if best >= 0.7:
-            scored.append((best, e["exercise_name"]))
-    return [n for _, n in sorted(scored, reverse=True)[:limit]]
+def _singular(tokens):
+    return {t[:-1] if len(t) > 3 and t.endswith("s") else t for t in tokens}
 
+
+def suggest_exercises(exercises, name, limit=3):
+    """Close matches to offer as 'did you mean…?'.
+
+    1. Exercises whose name contains every word the user typed ("leg raise" → Hanging/Lying Leg Raise).
+    2. Otherwise fuzzy match on the distinctive words only, so a shared "press" or "crunch" can't
+       make unrelated exercises look alike.
+    """
+    words = _singular(_norm(name).split())
+    distinct = _distinctive(name)
+    has_distinct = distinct != _norm(name) or not (set(_norm(name).split()) <= GENERIC_WORDS)
+    scored = {}
+    for e in exercises:
+        for key in [e["exercise_name"], *e["aliases"]]:
+            key_words = _singular(_norm(key).split())
+            if words and words <= key_words:
+                score = 1.0 + 1 / len(key_words)          # shorter names that contain all words rank first
+            elif has_distinct and set(distinct.split()) - GENERIC_WORDS:
+                score = difflib.SequenceMatcher(None, distinct, _distinctive(key)).ratio()
+                score = score if score >= 0.75 else 0
+            else:
+                score = difflib.SequenceMatcher(None, _norm(name), _norm(key)).ratio()
+                score = score if score >= 0.85 else 0
+            if score > scored.get(e["exercise_name"], 0):
+                scored[e["exercise_name"]] = score
+    ranked = sorted(((v, k) for k, v in scored.items() if v > 0), reverse=True)
+    if ranked and ranked[0][0] > 1:           # exact-word matches exist: don't pad with weak fuzzy ones
+        ranked = [r for r in ranked if r[0] > 1]
+    return [k for _, k in ranked[:limit]]
 
 def _same_wording(a: str, b: str) -> bool:
     x, y = _norm(a).rstrip("s"), _norm(b).rstrip("s")
@@ -336,6 +371,9 @@ def add_exercise(ctx: ToolContext, exercise_name, muscle_group, exercise_type, a
         return {"status": "already_exists", "exercise_name": existing["exercise_name"],
                 "instruction": "Use this existing name in log_workout."}
     close = None if force_new else similar_exercise(catalog, exercise_name)
+    offered = {n for u in (ctx.pending_action or {}).get("unknown_exercises", []) for n in u.get("did_you_mean", [])}
+    if close and close["exercise_name"] not in offered:
+        close = None  # the user was asked about their own name and said add it: trust that
     if close:
         return {"status": "similar_exists", "existing_exercise": close["exercise_name"],
                 "instruction": f"Not added. '{close['exercise_name']}' already exists. If the user meant it, log with "
@@ -398,8 +436,26 @@ def _last_session_sets(conn, user_id, exercise_id, before_session_id):
                      for s in sets]}
 
 
+DUPLICATE_WINDOW_MINUTES = 60
+
+
+def _already_logged(ctx, match, sets, d):
+    """Same exercise with the same weights and reps, saved from an earlier message in the last hour?"""
+    rows = fetch_all(ctx.conn,
+        """select message_id, weight_kg, reps, duration_sec from workout_sets
+           where user_id = %s and exercise_id = %s and log_date = %s and deleted_at is null
+             and message_id is distinct from %s and created_at > now() - make_interval(mins => %s)
+           order by workout_set_id""",
+        (ctx.user_id, match["exercise_id"], d, ctx.message_id, DUPLICATE_WINDOW_MINUTES))
+    wanted = [(round(to_kg(s.get("weight"), s.get("weight_unit")) or 0, 1), s.get("reps"), s.get("duration_sec")) for s in sets]
+    by_msg = {}
+    for r in rows:
+        by_msg.setdefault(r["message_id"], []).append((round(float(r["weight_kg"] or 0), 1), r["reps"], r["duration_sec"]))
+    return any(v == wanted for v in by_msg.values())
+
+
 def log_workout(ctx: ToolContext, workout_name, exercises, notes=None, duration_min=None,
-                log_date=None, start_new_session=False):
+                log_date=None, start_new_session=False, confirm_duplicate=False):
     if not exercises:
         raise ToolError("Need at least one exercise with sets.")
     d = parse_log_date(ctx, log_date)
@@ -428,8 +484,10 @@ def log_workout(ctx: ToolContext, workout_name, exercises, notes=None, duration_
                                       "exercises": [e for e in exercises if _norm(e["exercise_name"]) in unknown_names]}}
         ctx.asked_clarification = True
         unknown_instruction = (
-            "Ask ONE short question. If did_you_mean has names: 'Did you mean X, or should I add <name> as a new "
-            "<muscle> exercise?' If it's empty: 'Should I add <name> as a new <muscle> exercise?' "
+            "Ask ONE short question covering ALL unknown exercises together (never one at a time). For each: if "
+            "did_you_mean has names, 'did you mean X, or add <name> as new?'; if empty, 'add <name> as a new "
+            "<muscle> exercise?'. Example: 'Should I add Free Weight Crunch and Oblique Cable Crunch as new core "
+            "exercises?' "
             "After they answer, call add_exercise if needed, then log_workout with ONLY the exercises in "
             "workout_still_to_log (the others are already saved).")
         if not resolved:
@@ -455,6 +513,15 @@ def log_workout(ctx: ToolContext, workout_name, exercises, notes=None, duration_
             if made_up:
                 raise ToolError(f"The user didn't say {made_up} reps for {match['exercise_name']}. Nothing saved; "
                                 "ask how many sets and reps they did.")
+
+    # The same sets already saved from an earlier message (e.g. the user just said "yes lat pulldown")?
+    if not confirm_duplicate:
+        dupes = [m["exercise_name"] for m, sets in resolved if sets and _already_logged(ctx, m, sets, d)]
+        if dupes:
+            return {"status": "not_logged", "reason": "already_logged", "exercises": dupes,
+                    "instruction": "These exact sets were already saved from an earlier message, so nothing was "
+                                   "saved again. Tell the user they're already logged. Only if they clearly say "
+                                   "they did them again, call log_workout with confirm_duplicate=true."}
 
     for match, sets in resolved:
         if not sets:
@@ -638,6 +705,13 @@ def _check_entry_name(ctx, table, row, entry_name):
                     "Call get_logs (with the right log_date) to find the correct ID.")
 
 
+def _same_value(a, b) -> bool:
+    try:
+        return a is not None and b is not None and abs(float(a) - float(b)) < 1e-6
+    except (TypeError, ValueError):
+        return str(a) == str(b)
+
+
 def update_entry(ctx: ToolContext, table, record_id, changes, reason="other", entry_name=None):
     if table not in EDITABLE:
         raise ToolError(f"Can only edit {sorted(EDITABLE)}")
@@ -668,6 +742,21 @@ def update_entry(ctx: ToolContext, table, record_id, changes, reason="other", en
                 updates[k] = changes[k]
         if updates.get("unit") and updates["unit"] not in FOOD_UNITS:
             updates["unit"] = "piece"
+        # "make it 10 idli": scale calories, macros and grams with the quantity unless new values were given.
+        nutrition = ("calories_kcal", "protein_g", "carbs_g", "fat_g", "fiber_g", "estimated_grams")
+        old_q, new_q = row.get("quantity"), updates.get("quantity")
+        if new_q is not None and old_q and float(old_q) > 0 and float(new_q) != float(old_q) \
+                and not any(k in changes for k in nutrition[:5]):
+            factor = float(new_q) / float(old_q)
+            for k in nutrition:
+                if row.get(k) is not None:
+                    updates[k] = round(float(row[k]) * factor, 1)
+    # Drop "changes" that don't change anything (e.g. quantity 10 → 10).
+    updates = {k: v for k, v in updates.items()
+               if not _same_value(row.get(k), v)}
+    if not updates:
+        return {"status": "updated", "table": table, "record_id": record_id, "label": row.get("food_name")
+                or row.get("exercise_name") or "entry", "before": {}, "after": {}, "unchanged": True}
 
     ids = [record_id]
     if table == "workout_sets" and "exercise_id" in updates:

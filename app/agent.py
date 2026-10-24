@@ -91,6 +91,7 @@ MAIN_TOOLS = {
             "duration_min": {"type": "integer"},
             "log_date": {"type": "string", "description": "YYYY-MM-DD; omit for today."},
             "start_new_session": {"type": "boolean", "description": "Only if the user says it's a separate workout."},
+            "confirm_duplicate": {"type": "boolean", "description": "Only if the user confirms they really did the same sets again."},
         }, "required": ["workout_name", "exercises"]},
     },
     "add_exercise": {
@@ -428,6 +429,7 @@ def run_agent(conn, user, inbound_message_id, text, agent_turn_id):
                         user_text=" ".join([text, *[p["message_text"] or "" for p in prev]]))
     stats = {"llm_call_count": 0, "input": 0, "output": 0, "thinking": 0, "cached": 0, "tools_called": []}
     confirmations, model_texts, reaction = [], [], None
+    meal_results = []  # several meals in one message get one combined reply
     finished, awaiting_reply = False, onboarding
     asks_question = "?" in text
 
@@ -467,6 +469,8 @@ def run_agent(conn, user, inbound_message_id, text, agent_turn_id):
                 result = jsonable(_run_tool(conn, ctx, fc.name, args, allowed))
                 confirmation = None if onboarding else replies.for_tool(fc.name, result, ctx.user)
                 if confirmation:
+                    if fc.name == "log_meal":
+                        meal_results.append(result)
                     confirmations.append(confirmation)
                 if not confirmation or fc.name in NEEDS_COMMENT or result.get("needs_reply"):
                     gemini_must_reply = True
@@ -489,6 +493,12 @@ def run_agent(conn, user, inbound_message_id, text, agent_turn_id):
             finished = True  # every tool succeeded: code writes the reply, no second call
             break
 
+    if len(meal_results) > 1:
+        meal_texts = {replies.for_tool("log_meal", r, ctx.user) for r in meal_results}
+        others = [c for c in confirmations if c not in meal_texts]
+        confirmations = [replies.meals_combined(meal_results)] + others
+    if confirmations:
+        model_texts = [t for t in (replies.drop_echoes(t, confirmations) for t in model_texts) if t]
     reply_parts = confirmations + model_texts
     if not finished:
         stats["error"] = "no final reply within call limit"
@@ -504,7 +514,7 @@ def run_agent(conn, user, inbound_message_id, text, agent_turn_id):
     stats["intent"] = ("onboarding" if onboarding else INTENT_BY_TOOL.get(names[0], "other") if names
                        else "small_talk" if reaction and not model_texts else "question")
     stats["outcome"] = ("error" if stats.get("error") else
-                        "needs_clarification" if ctx.asked_clarification else "success")
+                        "needs_clarification" if ctx.new_pending_action else "success")
     billable_input = stats["input"] - stats["cached"] + stats["cached"] * 0.1  # cached input is billed at ~10%
     stats["cost_usd"] = round((billable_input * GEMINI_INPUT_USD_PER_M
                                + (stats["output"] + stats["thinking"]) * GEMINI_OUTPUT_USD_PER_M) / 1_000_000, 6)

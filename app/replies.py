@@ -156,18 +156,23 @@ MAIN_FIELDS = ["exercise_name", "weight_kg", "reps", "duration_sec", "distance_k
 
 def updated(r: dict) -> str:
     before, after = r["before"], r["after"]
-    changed = [k for k in after if str(before.get(k)) != str(after[k])]
-    main = [k for k in MAIN_FIELDS if k in changed] or changed
-    parts = []
-    for k in main:
-        old, new = before.get(k), after[k]
-        if k == "weight_kg":
-            old, new = f"{_fmt(old)} kg", f"{_fmt(new)} kg"
-        label = "" if k == "quantity" else f"{FIELD_LABEL.get(k, k)} "
-        parts.append(f"{label}{_fmt(old)} → {_fmt(new)}")
-    if "calories_kcal" in changed and "calories_kcal" not in main:
-        parts.append(f"({_fmt(before.get('calories_kcal'))} → {_fmt(after['calories_kcal'])} kcal)")
-    msg = f"Fixed {r.get('label') or 'that entry'}: " + " ".join(parts) if parts else "Updated."
+    if r.get("unchanged") or not after:
+        return f"{r.get('label') or 'That entry'} already has those values, nothing to change."
+    label = r.get("label") or "that entry"
+    if "quantity" in after:   # food item: "Fixed small idli: 6 → 10 (240 → 400 kcal)"
+        msg = f"Fixed {label}: {_fmt(before.get('quantity'))} → {_fmt(after['quantity'])}"
+        if "calories_kcal" in after:
+            msg += f" ({_fmt(before.get('calories_kcal'))} → {_fmt(after['calories_kcal'])} kcal)"
+    else:
+        parts = []
+        for k in [k for k in MAIN_FIELDS if k in after] or list(after):
+            old, new = before.get(k), after[k]
+            if k == "weight_kg":
+                old, new = f"{_fmt(old)} kg", f"{_fmt(new)} kg"
+            parts.append(f"{FIELD_LABEL.get(k, k)} {_fmt(old)} → {_fmt(new)}")
+        if "calories_kcal" in after and "calories_kcal" not in MAIN_FIELDS:
+            parts.append(f"({_fmt(before.get('calories_kcal'))} → {_fmt(after['calories_kcal'])} kcal)")
+        msg = f"Fixed {label}: " + ", ".join(parts)
     day = r.get("day_so_far")
     if day and day["targets"].get("calories_kcal"):
         msg += (f"\nToday: {_n(day['eaten']['calories_kcal'])} / {day['targets']['calories_kcal']} kcal · "
@@ -365,3 +370,50 @@ def onboarding_complete(user: dict, result: dict) -> str:
         "• lunch 2 roti, dal, paneer sabzi",
         "• weight 72.5",
     ])
+
+
+def meals_combined(results: list[dict]) -> str:
+    """Several meals in one message: one line each, one daily total at the end."""
+    lines = [f"Logged {len(results)} meals:"]
+    for r in results:
+        t = r["meal_totals"]
+        label = MEAL_LABEL.get(r.get("meal_type"), f"Meal {r['meal_number']}")
+        foods = ", ".join(f"{_n(i['quantity'])} {i['food_name']}" if float(i["quantity"] or 1) != 1 else i["food_name"]
+                          for i in r["items"])
+        lines.append(f"• *{label}* ~{_n(t['calories_kcal'])} kcal, P {_n(t['protein_g'])}g: {foods}")
+    day = results[-1]["day_so_far"]
+    eaten, target, remaining = day["eaten"], day["targets"], day["remaining"]
+    if target.get("calories_kcal"):
+        lines += ["", f"Today: {_n(eaten['calories_kcal'])} / {target['calories_kcal']} kcal · "
+                      f"protein {_n(eaten['protein_g'])} / {target['protein_g']} g"]
+        if remaining["calories_kcal"] is not None and remaining["calories_kcal"] < 0:
+            lines.append(f"That's {-remaining['calories_kcal']} kcal over today's target.")
+        elif remaining["protein_g"] and remaining["protein_g"] >= 25:
+            lines.append(f"Still ~{remaining['protein_g']} g protein to go.")
+    lines.append("_Reply with a fix anytime, e.g. \"lunch was 2 burgers\"._")
+    return "\n".join(lines)
+
+
+def _norm_line(s: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
+
+
+def drop_echoes(model_text: str, confirmations: list[str]) -> str:
+    """Remove lines where Gemini repeats what the app's confirmation already says."""
+    import difflib
+    conf_lines = [_norm_line(l) for c in confirmations for l in c.splitlines() if _norm_line(l)]
+    conf_words = set(" ".join(conf_lines).split())
+    kept = []
+    for line in model_text.splitlines():
+        n = _norm_line(line)
+        if not n:
+            kept.append(line)
+            continue
+        if any(difflib.SequenceMatcher(None, n, c).ratio() >= 0.75 for c in conf_lines):
+            continue  # near-copy of a confirmation line
+        if "baseline" in n or n.startswith(("logged", "added to today", "got it")) and \
+                len(set(n.split()) - conf_words) <= 2:
+            continue  # boilerplate restating the log
+        kept.append(line)
+    return "\n".join(kept).strip()

@@ -196,6 +196,17 @@ def check_data(ctx: Ctx, spec: str):
                      ctx.user_id, f"%{food}%", ctx.scenario_start)
         got = _num(row[field]) if row else None
         return _close(got, val, 0.01), f"{food} {field}={got}"
+    if kind == "meal_item_scaled":
+        food, ratio = words[1], words[2]
+        a, b = map(float, ratio.split("/"))
+        row = ctx.q1("""select quantity, calories_kcal from meal_items where user_id = %s and food_name ilike %s
+                        and deleted_at is null order by meal_item_id desc limit 1""", ctx.user_id, f"%{food}%")
+        first = ctx.q1("""select old_value from corrections where user_id = %s and field_name = 'calories_kcal'
+                          order by correction_id limit 1""", ctx.user_id)
+        if not row or not first:
+            return False, "calories weren't changed"
+        got = float(row["calories_kcal"]) / float(first["old_value"])
+        return abs(got - a / b) < 0.05, f"calories scaled ×{got:.2f} (expected ×{a / b:.2f})"
     if kind == "meal_item_deleted":
         food = words[1]
         live = ctx.q1("""select count(*) n from meal_items where user_id = %s and food_name ilike %s and deleted_at is null
@@ -290,6 +301,10 @@ def check_style(reply, tools_called):
         problems.append("markdown ** used")
     if re.search(r"^#+ ", reply, re.M):
         problems.append("markdown heading used")
+    lines = [l.strip() for l in reply.splitlines() if len(l.strip()) > 15]
+    repeated = {l for l in lines if lines.count(l) > 1}
+    if repeated:
+        problems.append(f"repeated line: {next(iter(repeated))[:50]}")
     code_written = any(t["tool"] in CODE_WRITTEN_TOOLS and t["status"] in
                        ("logged", "updated", "deleted", "undone", "report_ready") for t in tools_called)
     if not code_written:

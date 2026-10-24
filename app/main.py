@@ -14,7 +14,7 @@ from app import tools as T
 from app import whatsapp
 from app.config import CRON_SECRET, SCHEDULER_ENABLED, SIMULATOR_ENABLED, WHATSAPP_VERIFY_TOKEN
 from app.db import check_schema, fetch_all, fetch_one, get_pool
-from app.engine import handle_inbound, handle_whatsapp_message, handle_whatsapp_status
+from app.engine import handle_inbound, handle_whatsapp_message, handle_whatsapp_status, recover_unanswered
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +25,12 @@ app = FastAPI(title="Gym WhatsApp Agent")
 def _start_scheduler():
     if SCHEDULER_ENABLED:
         reminders.start_scheduler()
+    try:
+        n = recover_unanswered()
+        if n:
+            log.warning("Recovered %d WhatsApp message(s) interrupted by the last restart", n)
+    except Exception:
+        log.exception("Couldn't check for interrupted messages")
 STATIC = Path(__file__).resolve().parent / "static"
 PHONE_RE = re.compile(r"^[0-9]{8,15}$")
 

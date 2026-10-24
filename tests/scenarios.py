@@ -143,6 +143,16 @@ SCENARIOS = [
          "data": ["nothing_logged", "exercise_missing Zottman Curl"]},
     ]},
 
+    {"id": "WRK-17", "category": "Workout logging", "name": "Several unknown exercises asked together (real WhatsApp test)", "profile": "ready", "steps": [
+        {"say": "free weight crunch 3 sets 12 rep each\n\nleg raise 3 sets 12 rep each\n\noblique cable crunch 3 sets 15 rep each and weight 20 kg 30 kg 40 kg respectively",
+         "expect": "Asks about free weight crunch, leg raise (hanging or lying?) and oblique cable crunch in ONE message",
+         "reply_has": [r"free weight", r"oblique", r"leg raise"]},
+        {"say": "add both as new core exercises, and it was lying leg raise",
+         "expect": "Adds both, logs all 9 sets; no repeated lines",
+         "data": ["exercise_exists Oblique Cable Crunch", "sets Lying Leg Raise=3 reps=12,12,12",
+                  "sets Oblique Cable Crunch=3 weight=20 reps=15,15,15"]},
+    ]},
+
     # ───────────── Meal logging ─────────────
     {"id": "MEAL-01", "category": "Meal logging", "name": "Indian home lunch", "profile": "ready", "steps": [
         {"say": "lunch 3 roti, 1 katori dal, paneer bhurji", "expect": "3 items, ~650–900 kcal, meal_type lunch",
@@ -181,6 +191,19 @@ SCENARIOS = [
         {"say": "breakfast poha 1 plate", "expect": "Logs meal 1", "data": ["meals_today=1"]},
         {"say": "lunch 2 roti dal sabzi", "expect": "Logs meal 2; 'Today' total equals both meals", "data": ["meals_today=2"],
          "reply_has": [r"today"]},
+    ]},
+
+    {"id": "MEAL-10", "category": "Meal logging", "name": "Whole day in one message (real WhatsApp test)", "profile": "ready", "steps": [
+        {"say": "Evening Today i had 1 scoop whey protein \n\nIn morning small idli 6-7 with tomato and dhaniya chutney with 1 cup coffee milk\n\nIn afternoon i had 1 chicken breast burger made of high protein burger\n\nDinner egg roll made 3 eggs",
+         "expect": "4 meals logged; ONE reply with a line per meal and a single 'Today' total",
+         "tools": ["log_meal"], "data": ["meals_today=4"],
+         "reply_has": [r"Logged 4 meals"], "reply_not": [r"Today:[\s\S]*Today:"]},
+    ]},
+    {"id": "FIX-09", "category": "Corrections", "name": "Quantity change rescales calories (real WhatsApp test)", "profile": "ready", "steps": [
+        {"say": "breakfast 6 small idli with chutney", "expect": "Logged"},
+        {"say": "Make idli count 10", "expect": "Quantity 10 and calories/protein scaled up in the same fix",
+         "tools": ["update_entry"], "data": ["meal_item idli quantity=10", "meal_item_scaled idli 10/6"],
+         "reply_has": [r"→ 10 \(\d+(\.\d)? → \d+(\.\d)? kcal\)"]},
     ]},
 
     # ───────────── Weight ─────────────

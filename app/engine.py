@@ -11,7 +11,7 @@ from collections import defaultdict
 
 from app.agent import ModelBusy, run_agent
 from app.config import DEFAULT_TIMEZONE
-from app.db import fetch_one, get_pool
+from app.db import fetch_all, fetch_one, get_pool
 from app import onboarding_form, whatsapp
 
 log = logging.getLogger(__name__)
@@ -190,3 +190,29 @@ def handle_whatsapp_status(event: dict):
                    and array_position(array['queued','sent','delivered','read'], coalesce(delivery_status, 'queued'))
                        < array_position(array['queued','sent','delivered','read'], %s)""",
                 (status, event["wamid"], status))
+
+
+def recover_unanswered(max_age_minutes: int = 15) -> int:
+    """After a restart, re-run WhatsApp messages whose turn never finished (e.g. killed by a redeploy).
+
+    The agent saves logs and the reply in one transaction, so an unfinished turn left nothing behind
+    except the inbound message and an open turn row. We remove those two and process the message again.
+    """
+    with get_pool().connection() as conn:
+        stuck = fetch_all(conn,
+            """select m.message_id, m.user_id, m.whatsapp_message_id, m.message_text
+               from messages m
+               where m.channel = 'whatsapp' and m.direction = 'inbound' and m.content_type = 'text'
+                 and m.whatsapp_message_id is not null
+                 and m.created_at > now() - make_interval(mins => %s)
+                 and not exists (select 1 from agent_turns a where a.message_id = m.message_id and a.completed_at is not null)
+               order by m.message_id""", (max_age_minutes,))
+        for m in stuck:
+            conn.execute("delete from agent_turns where message_id = %s and completed_at is null", (m["message_id"],))
+            conn.execute("delete from messages where message_id = %s", (m["message_id"],))
+    for m in stuck:
+        log.warning("Re-processing message %s that was interrupted by a restart", m["message_id"])
+        threading.Thread(target=handle_whatsapp_message, daemon=True, args=({
+            "from": m["user_id"], "wamid": m["whatsapp_message_id"], "type": "text",
+            "text": m["message_text"], "profile_name": None},)).start()
+    return len(stuck)
