@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spotter Simulator</title>
+<style>
+  :root {
+    --wa-green: #008069; --wa-green-dark: #005c4b; --wa-teal: #25d366;
+    --bg-app: #d1d7db; --bg-chat: #efeae2; --bubble-in: #ffffff; --bubble-out: #d9fdd3;
+    --text: #111b21; --text-muted: #667781; --border: #e9edef; --panel: #ffffff; --panel-alt: #f0f2f5;
+    --tick: #53bdeb; --danger: #d93025;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg-app); color: var(--text); font-size: 14px; }
+  .app { display: grid; grid-template-columns: 280px 1fr 360px; height: 100vh; max-width: 1600px; margin: 0 auto; background: var(--panel); box-shadow: 0 0 20px rgba(0,0,0,.08); }
+  .app.no-debug { grid-template-columns: 280px 1fr; }
+  .app.no-debug .debug { display: none; }
+
+  /* Sidebar */
+  .sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; min-width: 0; }
+  .side-head { background: var(--panel-alt); padding: 14px 16px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+  .side-head small { font-weight: 400; color: var(--text-muted); }
+  .new-user { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; }
+  .new-user input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-alt); font: inherit; }
+  .btn { border: 0; border-radius: 8px; padding: 8px 12px; font: inherit; cursor: pointer; background: var(--wa-green); color: #fff; }
+  .btn.ghost { background: transparent; color: var(--wa-green); border: 1px solid var(--wa-green); }
+  .btn.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+  .users { overflow-y: auto; flex: 1; }
+  .user-row { padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; gap: 12px; align-items: center; }
+  .user-row:hover, .user-row.active { background: var(--panel-alt); }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; background: #dfe5e7; display: grid; place-items: center; font-weight: 600; color: #54656f; flex: none; }
+  .user-row .meta { min-width: 0; }
+  .user-row .name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .user-row .sub { color: var(--text-muted); font-size: 12px; }
+
+  /* Chat */
+  .chat { display: flex; flex-direction: column; min-width: 0; background: var(--bg-chat); }
+  .chat-head { background: var(--panel-alt); padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
+  .chat-head .avatar { background: var(--wa-green); color: #fff; }
+  .chat-head .title { font-weight: 600; }
+  .chat-head .status { font-size: 12px; color: var(--text-muted); }
+  .chat-head .spacer { flex: 1; }
+  .messages { flex: 1; overflow-y: auto; padding: 16px 6%; display: flex; flex-direction: column; gap: 4px;
+    background-image: radial-gradient(rgba(0,0,0,.035) 1px, transparent 1px); background-size: 18px 18px; }
+  .day-chip { align-self: center; background: #fff; color: var(--text-muted); font-size: 12px; padding: 5px 12px; border-radius: 8px; margin: 8px 0; box-shadow: 0 1px .5px rgba(0,0,0,.13); }
+  .bubble { max-width: 65%; padding: 6px 9px 8px; border-radius: 8px; box-shadow: 0 1px .5px rgba(0,0,0,.13); white-space: pre-wrap; word-wrap: break-word; line-height: 1.4; position: relative; cursor: default; }
+  .bubble.in { background: var(--bubble-in); align-self: flex-start; border-top-left-radius: 0; }
+  .bubble.out { background: var(--bubble-out); align-self: flex-end; border-top-right-radius: 0; }
+  .bubble.in.clickable { cursor: pointer; }
+  .bubble.in.selected { outline: 2px solid var(--wa-teal); }
+  .bubble .time { font-size: 11px; color: var(--text-muted); float: right; margin: 6px 0 -4px 10px; }
+  .bubble .tick { color: var(--tick); }
+  .bubble.error { background: #fde8e7; }
+  .bubble.clickable { cursor: pointer; }
+  .bubble.out.selected { outline: 2px solid var(--wa-teal); }
+  .bubble.has-reaction { margin-bottom: 14px; }
+  .reaction { position: absolute; bottom: -14px; left: 8px; background: #fff; border-radius: 12px; padding: 0 5px;
+    font-size: 14px; line-height: 22px; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .typing { align-self: flex-start; background: #fff; padding: 10px 14px; border-radius: 8px; color: var(--text-muted); font-style: italic; }
+  .composer { background: var(--panel-alt); padding: 10px 16px; display: flex; gap: 10px; align-items: flex-end; }
+  .composer textarea { flex: 1; resize: none; border: 0; border-radius: 8px; padding: 10px 12px; font: inherit; max-height: 120px; outline: none; }
+  .send { width: 42px; height: 42px; border-radius: 50%; border: 0; background: var(--wa-green); color: #fff; cursor: pointer; display: grid; place-items: center; flex: none; }
+  .send:disabled { opacity: .5; cursor: default; }
+  .quick { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 16px 10px; background: var(--panel-alt); }
+  .quick button { border: 1px solid var(--border); background: #fff; border-radius: 16px; padding: 4px 10px; font-size: 12px; cursor: pointer; color: var(--text); }
+  .empty { margin: auto; text-align: center; color: var(--text-muted); max-width: 320px; line-height: 1.5; }
+
+  /* Debug */
+  .debug { border-left: 1px solid var(--border); display: flex; flex-direction: column; min-width: 0; background: #fafafa; }
+  .tabs { display: flex; background: var(--panel-alt); border-bottom: 1px solid var(--border); }
+  .tabs button { flex: 1; border: 0; background: transparent; padding: 14px 8px; font: inherit; font-weight: 500; cursor: pointer; color: var(--text-muted); border-bottom: 3px solid transparent; }
+  .tabs button.active { color: var(--wa-green); border-bottom-color: var(--wa-green); }
+  .debug-body { overflow-y: auto; padding: 14px; flex: 1; font-size: 13px; }
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .stat { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  .stat .k { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+  .stat .v { font-weight: 600; font-size: 15px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #e7f3ef; color: var(--wa-green-dark); }
+  .pill.warn { background: #fff4e5; color: #8a5300; } .pill.err { background: #fde8e7; color: var(--danger); }
+  .tool { background: #fff; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+  .tool summary { padding: 8px 10px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+  .tool pre, .json { margin: 0; padding: 8px 10px; background: #f6f8fa; border-top: 1px solid var(--border); font-size: 11.5px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  h4 { margin: 14px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+  th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border); font-size: 12px; font-variant-numeric: tabular-nums; }
+  th { background: var(--panel-alt); font-weight: 600; }
+  .muted { color: var(--text-muted); }
+  .bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; margin-top: 4px; }
+  .bar > div { height: 100%; background: var(--wa-green); }
+  .mobile-only { display: none; }
+
+  @media (max-width: 1100px) { .app { grid-template-columns: 240px 1fr 320px; } }
+  @media (max-width: 860px) {
+    .app, .app.no-debug { grid-template-columns: 1fr; }
+    .sidebar, .debug { display: none; }
+    .app.show-users .sidebar { display: flex; position: fixed; inset: 0; z-index: 10; background: #fff; }
+    .app.show-debug .debug { display: flex; position: fixed; inset: 0; z-index: 10; }
+    .mobile-only { display: inline-block; }
+    .messages { padding: 12px 16px; }
+    .bubble { max-width: 85%; }
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="sidebar">
+    <div class="side-head"><span>Test users <small>(simulator)</small></span>
+      <button class="btn ghost mobile-only" onclick="toggle('show-users')">Close</button></div>
+    <form class="new-user" onsubmit="newUser(event)">
+      <input id="newPhone" placeholder="Phone e.g. 919900000001" inputmode="numeric" pattern="[0-9]{8,15}" required>
+      <button class="btn" type="submit">Open</button>
+    </form>
+    <div class="users" id="users"></div>
+  </aside>
+
+  <main class="chat">
+    <header class="chat-head">
+      <button class="btn ghost mobile-only" onclick="toggle('show-users')">☰</button>
+      <div class="avatar">S</div>
+      <div><div class="title">Spotter</div><div class="status" id="chatStatus">Pick or create a test user</div></div>
+      <div class="spacer"></div>
+      <button class="btn ghost" id="debugToggle" onclick="toggleDebug()">Debug</button>
+    </header>
+    <div class="messages" id="messages"><div class="empty">Enter a test phone number on the left (any 8–15 digits, e.g. <b>919900000001</b>) and say <b>hi</b> to start onboarding.</div></div>
+    <div class="quick" id="quick"></div>
+    <form class="composer" onsubmit="send(event)">
+      <textarea id="input" rows="1" placeholder="Type a message" disabled></textarea>
+      <button class="send" id="sendBtn" type="submit" disabled aria-label="Send">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+      </button>
+    </form>
+  </main>
+
+  <aside class="debug">
+    <div class="tabs">
+      <button class="active" data-tab="turn" onclick="setTab('turn')">Turn</button>
+      <button data-tab="today" onclick="setTab('today')">Today's data</button>
+      <button class="mobile-only" onclick="toggle('show-debug')">✕</button>
+    </div>
+    <div class="debug-body" id="debugBody"><p class="muted">Send a message, then click any message to see what happened behind it.</p></div>
+  </aside>
+</div>
+
+<script>
+const state = { user: null, history: [], selected: null, tab: 'turn' };
+const $ = (id) => document.getElementById(id);
+const QUICK = ['hi', 'bench 60kg 10,10,8 and incline db 20s 3x12', 'lunch 3 roti, 1 katori dal, paneer bhurji',
+               'weight 74.2', 'actually last bench set was 9 reps', 'undo', 'weekly report', 'thanks!', 'rest day'];
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function waFormat(s) {
+  return esc(s).replace(/\*([^*\n]+)\*/g, '<b>$1</b>').replace(/(^|\W)_([^_\n]+)_(?=\W|$)/g, '$1<i>$2</i>')
+               .replace(/~([^~\n]+)~/g, '<s>$1</s>');
+}
+function hhmm(iso) { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+function dayLabel(iso) { return new Date(iso).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }); }
+async function api(path, opts = {}) {
+  const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || r.statusText);
+  return body;
+}
+function toggle(cls) { $('app').classList.toggle(cls); }
+function toggleDebug() {
+  if (window.innerWidth <= 860) return toggle('show-debug');
+  $('app').classList.toggle('no-debug');
+  try { localStorage.setItem('sim-debug', $('app').classList.contains('no-debug') ? 'off' : 'on'); } catch (e) {}
+}
+
+async function loadUsers() {
+  const users = await api('/api/sim/users');
+  $('users').innerHTML = users.length ? users.map(u => `
+    <div class="user-row ${state.user === u.user_id ? 'active' : ''}" onclick="openUser('${u.user_id}')">
+      <div class="avatar">${esc((u.name || '#')[0].toUpperCase())}</div>
+      <div class="meta"><div class="name">${esc(u.name || 'New user')}</div>
+      <div class="sub">+${u.user_id} · ${esc(u.onboarding_status.replace('_', ' '))}</div></div>
+    </div>`).join('') : '<p class="muted" style="padding:16px">No test users yet.</p>';
+}
+
+function newUser(e) { e.preventDefault(); openUser($('newPhone').value.trim()); $('newPhone').value = ''; }
+
+async function openUser(id) {
+  state.user = id; state.selected = null;
+  $('app').classList.remove('show-users');
+  $('chatStatus').textContent = '+' + id;
+  $('input').disabled = false; $('sendBtn').disabled = false; $('input').focus();
+  $('quick').innerHTML = QUICK.map(q => `<button type="button" onclick="quickSend(this.textContent)">${esc(q)}</button>`).join('');
+  state.history = await api(`/api/sim/users/${id}/messages`).catch(() => []);
+  renderMessages(); loadUsers(); renderDebug();
+}
+
+function renderMessages(typing = false) {
+  const box = $('messages');
+  if (!state.history.length && !typing) {
+    box.innerHTML = '<div class="empty">No messages yet. Say <b>hi</b> 👋</div>';
+  } else {
+    let lastDay = '', html = '';
+    const reactions = {};
+    for (const m of state.history) if (m.content_type === 'reaction') reactions[m.reaction_to_message_id] = m.text;
+    for (const m of state.history) {
+      if (m.content_type === 'reaction') continue;
+      const d = dayLabel(m.created_at);
+      if (d !== lastDay) { html += `<div class="day-chip">${d}</div>`; lastDay = d; }
+      const mine = m.direction === 'inbound';   // inbound to the bot = sent by "me" in the simulator
+      const sel = m.agent_turn_id && state.selected === m.agent_turn_id ? 'selected' : '';
+      const react = reactions[m.message_id];
+      const cls = `${mine ? 'out' : 'in'} ${m.agent_turn_id ? 'clickable' : ''} ${sel} ${!mine && m.outcome === 'error' ? 'error' : ''} ${react ? 'has-reaction' : ''}`;
+      html += `<div class="bubble ${cls}" ${m.agent_turn_id ? `onclick="selectTurn(${m.agent_turn_id})"` : ''}>${waFormat(m.text)}<span class="time">${hhmm(m.created_at)}${mine ? ' <span class="tick">✓✓</span>' : ''}</span>${react ? `<span class="reaction">${esc(react)}</span>` : ''}</div>`;
+    }
+    if (typing) html += '<div class="typing">Spotter is typing…</div>';
+    box.innerHTML = html;
+  }
+  box.scrollTop = box.scrollHeight;
+}
+
+function quickSend(text) { $('input').value = text; send(); }
+
+async function send(e) {
+  if (e) e.preventDefault();
+  const text = $('input').value.trim();
+  if (!text || !state.user) return;
+  $('input').value = ''; $('sendBtn').disabled = true;
+  state.history.push({ message_id: -1, direction: 'inbound', text, created_at: new Date().toISOString() });
+  renderMessages(true);
+  try {
+    const res = await api(`/api/sim/users/${state.user}/messages`, { method: 'POST', body: JSON.stringify({ text }) });
+    state.history = await api(`/api/sim/users/${state.user}/messages`);
+    state.selected = res.agent_turn_id;
+  } catch (err) {
+    state.history.push({ message_id: -2, direction: 'outbound', text: '⚠️ ' + err.message, created_at: new Date().toISOString(), outcome: 'error' });
+  }
+  $('sendBtn').disabled = false; $('input').focus();
+  renderMessages(); renderDebug(); loadUsers();
+}
+
+function selectTurn(id) { state.selected = id; state.tab = 'turn'; renderMessages(); renderDebug(); if (window.innerWidth <= 860) toggle('show-debug'); }
+function setTab(t) { state.tab = t; renderDebug(); }
+
+function renderDebug() {
+  document.querySelectorAll('.tabs button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === state.tab));
+  if (state.tab === 'today') return renderToday();
+  const m = state.history.find(x => x.agent_turn_id === state.selected);
+  if (!m) { $('debugBody').innerHTML = '<p class="muted">Click any message to see the intent, tools, tokens and latency behind it.</p>'; return; }
+  const reaction = state.history.find(x => x.content_type === 'reaction' && x.agent_turn_id === state.selected);
+  const pillCls = m.outcome === 'error' ? 'err' : m.outcome === 'needs_clarification' ? 'warn' : '';
+  const tools = (m.tools_called || []);
+  $('debugBody').innerHTML = `
+    <div style="margin-bottom:10px">Intent <span class="pill">${esc(m.intent || '—')}</span> &nbsp; Outcome <span class="pill ${pillCls}">${esc(m.outcome || '—')}</span></div>
+    <div class="stat-grid">
+      <div class="stat"><div class="k">Latency</div><div class="v">${m.latency_ms != null ? (m.latency_ms / 1000).toFixed(1) + ' s' : '—'}</div></div>
+      <div class="stat"><div class="k">Gemini calls</div><div class="v">${m.llm_calls ?? '—'}</div></div>
+      <div class="stat"><div class="k">Tokens in / out</div><div class="v">${m.input_tokens ?? 0} / ${m.output_tokens ?? 0}</div></div>
+      <div class="stat"><div class="k">Thinking tokens</div><div class="v">${m.thinking_tokens ?? 0}</div></div>
+      <div class="stat"><div class="k">Cached input</div><div class="v">${m.cached_tokens ?? 0}</div></div>
+      <div class="stat"><div class="k">Est. cost</div><div class="v">$${Number(m.cost_usd || 0).toFixed(5)}</div></div>
+      ${reaction ? `<div class="stat" style="grid-column:span 2"><div class="k">Reacted with</div><div class="v">${esc(reaction.text)}</div></div>` : ''}
+    </div>
+    ${m.error ? `<h4>Error</h4><pre class="json">${esc(m.error)}</pre>` : ''}
+    <h4>Tools called (${tools.length})</h4>
+    ${tools.length ? tools.map(t => `<details class="tool"><summary><b>${esc(t.tool)}</b><span class="pill ${t.status === 'error' ? 'err' : t.status === 'not_logged' ? 'warn' : ''}">${esc(t.status)}</span></summary><pre>${esc(JSON.stringify(t.args, null, 2))}</pre></details>`).join('') : '<p class="muted">None — answered directly.</p>'}`;
+}
+
+async function renderToday() {
+  if (!state.user) { $('debugBody').innerHTML = '<p class="muted">Pick a user first.</p>'; return; }
+  let d;
+  try { d = await api(`/api/sim/users/${state.user}/today`); }
+  catch (e) { $('debugBody').innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
+  const n = d.today.nutrition, p = d.profile;
+  const bar = (v, t) => t ? `<div class="bar"><div style="width:${Math.min(100, v / t * 100)}%"></div></div>` : '';
+  const sets = d.today.workout_sessions.flatMap(s => s.sets.map(x => ({ ...x, workout: s.workout_name })));
+  $('debugBody').innerHTML = `
+    <div class="muted" style="margin-bottom:8px">${esc(p.name || 'New user')} · ${esc(p.goal || 'goal not set')} · log date ${esc(d.log_date)} · onboarding: ${esc(p.onboarding_status)}${p.onboarding_step ? ' (' + esc(p.onboarding_step) + ')' : ''}</div>
+    <div class="stat-grid">
+      <div class="stat"><div class="k">Calories</div><div class="v">${n.eaten.calories_kcal} / ${n.targets.calories_kcal ?? '—'}</div>${bar(n.eaten.calories_kcal, n.targets.calories_kcal)}</div>
+      <div class="stat"><div class="k">Protein g</div><div class="v">${n.eaten.protein_g} / ${n.targets.protein_g ?? '—'}</div>${bar(n.eaten.protein_g, n.targets.protein_g)}</div>
+      <div class="stat"><div class="k">Carbs g</div><div class="v">${n.eaten.carbs_g} / ${n.targets.carbs_g ?? '—'}</div></div>
+      <div class="stat"><div class="k">Fat g · Fibre g</div><div class="v">${n.eaten.fat_g} · ${n.eaten.fiber_g}</div></div>
+    </div>
+    <h4>Meals</h4>
+    ${d.today.meals.length ? `<table><tr><th>#</th><th>Item</th><th>Qty</th><th>kcal</th><th>P</th></tr>${d.today.meals.map(m => m.items.map((i, k) => `<tr><td>${k ? '' : m.meal_number}</td><td>${esc(i.food_name)}</td><td>${i.quantity} ${esc(i.unit)}</td><td>${i.kcal}</td><td>${i.protein_g}</td></tr>`).join('')).join('')}</table>` : '<p class="muted">None yet.</p>'}
+    <h4>Workout sets</h4>
+    ${sets.length ? `<table><tr><th>Exercise</th><th>Set</th><th>kg</th><th>Reps</th></tr>${sets.map(s => `<tr><td>${esc(s.exercise_name)}</td><td>${s.set_number}</td><td>${s.weight_kg ?? '—'}</td><td>${s.reps ?? (s.duration_sec ? s.duration_sec + 's' : '—')}</td></tr>`).join('')}</table>` : '<p class="muted">None yet.</p>'}
+    <h4>Weight</h4>
+    ${d.today.weight_logs.length ? d.today.weight_logs.map(w => `<div>${w.weight_kg} kg</div>`).join('') : '<p class="muted">None today.</p>'}
+    <h4>Reminders</h4>
+    <div id="reminderList" class="muted">Loading…</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn ghost" onclick="sendReminder('meal_log_reminder')">Send meal reminder now</button>
+      <button class="btn ghost" onclick="sendReminder('workout_log_reminder')">Send workout reminder now</button>
+    </div>
+    <div id="reminderResult" class="muted" style="margin-top:6px"></div>
+    <div style="margin-top:16px"><button class="btn danger" onclick="resetUser()">Delete this test user</button></div>`;
+  loadReminders();
+}
+
+const REMINDER_LABEL = { meal_log_reminder: 'Meal check', workout_log_reminder: 'Workout check' };
+async function loadReminders() {
+  const box = $('reminderList'); if (!box) return;
+  const list = await api(`/api/sim/users/${state.user}/reminders`).catch(() => []);
+  box.innerHTML = list.length ? `<table><tr><th>Reminder</th><th>Time</th><th>Next</th></tr>${list.map(r =>
+    `<tr><td>${REMINDER_LABEL[r.reminder_type] || esc(r.reminder_type)}</td><td>${esc(r.send_time.slice(0, 5))}</td>
+     <td>${r.next_run_at ? esc(new Date(r.next_run_at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })) : '—'}</td></tr>`).join('')}</table>`
+    : 'None yet (created when onboarding finishes).';
+}
+async function sendReminder(type) {
+  try {
+    const r = await api(`/api/sim/users/${state.user}/reminders/${type}/send`, { method: 'POST' });
+    $('reminderResult').textContent = r.skip_reason
+      ? `Sent for preview. In real use it would be skipped: ${r.skip_reason}.`
+      : `Sent as ${r.send_mode === 'template' ? 'a template (outside 24 h window)' : 'a normal message (inside 24 h window)'}.`;
+    state.history = await api(`/api/sim/users/${state.user}/messages`); renderMessages();
+  } catch (e) { $('reminderResult').textContent = e.message; }
+}
+
+// Pick up reminders the scheduler sends while the chat is open.
+setInterval(async () => {
+  if (!state.user || $('sendBtn').disabled) return;
+  const h = await api(`/api/sim/users/${state.user}/messages`).catch(() => null);
+  if (h && h.length !== state.history.length) { state.history = h; renderMessages(); }
+}, 8000);
+
+async function resetUser() {
+  if (!state.user || !confirm(`Delete test user +${state.user} and all their data?`)) return;
+  await api(`/api/sim/users/${state.user}`, { method: 'DELETE' });
+  state.user = null; state.history = [];
+  $('chatStatus').textContent = 'Pick or create a test user';
+  $('input').disabled = true; $('sendBtn').disabled = true; $('quick').innerHTML = '';
+  renderMessages(); renderDebug(); loadUsers();
+}
+
+$('input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+try { if (localStorage.getItem('sim-debug') === 'off') $('app').classList.add('no-debug'); } catch (e) {}
+loadUsers();
+</script>
+</body>
+</html>

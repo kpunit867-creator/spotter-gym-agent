@@ -1,0 +1,277 @@
+{
+  "version": "6.0",
+  "screens": [
+    {
+      "id": "PROFILE",
+      "title": "Set up Spotter",
+      "terminal": true,
+      "success": true,
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "Fill this once and I'll set your daily calorie and protein targets."
+          },
+          {
+            "type": "TextInput",
+            "name": "name",
+            "label": "Your name",
+            "input-type": "text",
+            "required": true
+          },
+          {
+            "type": "TextInput",
+            "name": "age",
+            "label": "Age",
+            "input-type": "number",
+            "required": true
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "gender",
+            "label": "Gender",
+            "required": true,
+            "data-source": [
+              {
+                "id": "male",
+                "title": "Male"
+              },
+              {
+                "id": "female",
+                "title": "Female"
+              },
+              {
+                "id": "other",
+                "title": "Other"
+              }
+            ]
+          },
+          {
+            "type": "TextInput",
+            "name": "height_cm",
+            "label": "Height (cm)",
+            "input-type": "number",
+            "required": true,
+            "helper-text": "5 ft 6 ≈ 168 · 5 ft 8 ≈ 173 · 5 ft 10 ≈ 178 · 6 ft ≈ 183"
+          },
+          {
+            "type": "TextInput",
+            "name": "weight_kg",
+            "label": "Current weight (kg)",
+            "input-type": "number",
+            "required": true
+          },
+          {
+            "type": "Dropdown",
+            "name": "goal",
+            "label": "Main goal",
+            "required": true,
+            "data-source": [
+              {
+                "id": "fat_loss",
+                "title": "Lose fat"
+              },
+              {
+                "id": "muscle_gain",
+                "title": "Build muscle"
+              },
+              {
+                "id": "recomposition",
+                "title": "Lose fat + build muscle"
+              },
+              {
+                "id": "strength",
+                "title": "Get stronger"
+              },
+              {
+                "id": "general_fitness",
+                "title": "General fitness"
+              }
+            ]
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "experience_level",
+            "label": "Training experience",
+            "required": true,
+            "data-source": [
+              {
+                "id": "beginner",
+                "title": "Beginner (under 1 year)"
+              },
+              {
+                "id": "intermediate",
+                "title": "Intermediate (1–3 years)"
+              },
+              {
+                "id": "advanced",
+                "title": "Advanced (3+ years)"
+              }
+            ]
+          },
+          {
+            "type": "Dropdown",
+            "name": "diet_preference",
+            "label": "Diet",
+            "required": true,
+            "data-source": [
+              {
+                "id": "veg",
+                "title": "Vegetarian"
+              },
+              {
+                "id": "eggetarian",
+                "title": "Eggetarian"
+              },
+              {
+                "id": "non_veg",
+                "title": "Non-veg"
+              },
+              {
+                "id": "vegan",
+                "title": "Vegan"
+              }
+            ]
+          },
+          {
+            "type": "Dropdown",
+            "name": "workouts_per_week",
+            "label": "Training days per week",
+            "required": true,
+            "data-source": [
+              {
+                "id": "1",
+                "title": "1 day"
+              },
+              {
+                "id": "2",
+                "title": "2 days"
+              },
+              {
+                "id": "3",
+                "title": "3 days"
+              },
+              {
+                "id": "4",
+                "title": "4 days"
+              },
+              {
+                "id": "5",
+                "title": "5 days"
+              },
+              {
+                "id": "6",
+                "title": "6 days"
+              },
+              {
+                "id": "7",
+                "title": "7 days"
+              }
+            ]
+          },
+          {
+            "type": "Dropdown",
+            "name": "workout_time",
+            "label": "Usual training time",
+            "required": true,
+            "data-source": [
+              {
+                "id": "05:00",
+                "title": "5 AM"
+              },
+              {
+                "id": "06:00",
+                "title": "6 AM"
+              },
+              {
+                "id": "07:00",
+                "title": "7 AM"
+              },
+              {
+                "id": "08:00",
+                "title": "8 AM"
+              },
+              {
+                "id": "09:00",
+                "title": "9 AM"
+              },
+              {
+                "id": "10:00",
+                "title": "10 AM"
+              },
+              {
+                "id": "11:00",
+                "title": "11 AM"
+              },
+              {
+                "id": "12:00",
+                "title": "12 PM"
+              },
+              {
+                "id": "13:00",
+                "title": "1 PM"
+              },
+              {
+                "id": "14:00",
+                "title": "2 PM"
+              },
+              {
+                "id": "15:00",
+                "title": "3 PM"
+              },
+              {
+                "id": "16:00",
+                "title": "4 PM"
+              },
+              {
+                "id": "17:00",
+                "title": "5 PM"
+              },
+              {
+                "id": "18:00",
+                "title": "6 PM"
+              },
+              {
+                "id": "19:00",
+                "title": "7 PM"
+              },
+              {
+                "id": "20:00",
+                "title": "8 PM"
+              },
+              {
+                "id": "21:00",
+                "title": "9 PM"
+              },
+              {
+                "id": "22:00",
+                "title": "10 PM"
+              }
+            ]
+          },
+          {
+            "type": "Footer",
+            "label": "Finish setup",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "name": "${form.name}",
+                "age": "${form.age}",
+                "gender": "${form.gender}",
+                "height_cm": "${form.height_cm}",
+                "weight_kg": "${form.weight_kg}",
+                "goal": "${form.goal}",
+                "experience_level": "${form.experience_level}",
+                "diet_preference": "${form.diet_preference}",
+                "workouts_per_week": "${form.workouts_per_week}",
+                "workout_time": "${form.workout_time}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

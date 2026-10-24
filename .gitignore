@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# evaluation results
+tests/results/
+
+# local tooling
+.claude/
+*.log

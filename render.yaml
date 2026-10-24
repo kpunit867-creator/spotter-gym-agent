@@ -1,0 +1,39 @@
+# Render Blueprint: free web service in Singapore (closest Render region to Supabase Mumbai).
+services:
+  - type: web
+    name: spotter-backend
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: DEFAULT_TIMEZONE
+        value: Asia/Kolkata
+      # Reminders are triggered by Supabase pg_cron calling /cron/run-reminders (the free instance
+      # sleeps, so an in-process timer can't be relied on).
+      - key: SCHEDULER_ENABLED
+        value: "false"
+      # The web simulator is a test tool; keep it off on the public server for now.
+      - key: SIMULATOR_ENABLED
+        value: "false"
+      # Secrets: set these in the Render dashboard (never committed).
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: CRON_SECRET
+        sync: false
